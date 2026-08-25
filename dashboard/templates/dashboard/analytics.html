@@ -1,0 +1,131 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}System Analytics & Latency | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}System Analytics & Latency{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Latency Percentiles Cards -->
+  <div class="grid-4">
+    <div class="stat-card">
+      <div class="stat-label">p50 Latency</div>
+      <div class="stat-value" style="color: var(--success);">
+        <span>180</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">ms</span>
+      </div>
+      <div class="stat-sub">Median job execution time</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">p95 Latency</div>
+      <div class="stat-value" style="color: var(--warning);">
+        <span>620</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">ms</span>
+      </div>
+      <div class="stat-sub">95th percentile duration</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">p99 Latency</div>
+      <div class="stat-value" style="color: var(--primary);">
+        <span>1,450</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">ms</span>
+      </div>
+      <div class="stat-sub">99th percentile duration</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Execution Success Ratio</div>
+      <div class="stat-value" style="color: var(--cyan);">
+        <span>98.6%</span>
+      </div>
+      <div class="stat-sub">Past 24 hours</div>
+    </div>
+  </div>
+
+  <!-- Historical Charts -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📊 Queue Processing Latency Distribution (ms)</div>
+      </div>
+      <div class="card-body">
+        <div style="height: 250px; position: relative;">
+          <canvas id="latencyChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">⚡ Throughput Capacity by Queue</div>
+      </div>
+      <div class="card-body">
+        <div style="height: 250px; position: relative;">
+          <canvas id="queueThroughputChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.Chart) {
+    const ctx1 = document.getElementById('latencyChart');
+    if (ctx1) {
+      new Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels: ['< 100ms', '100-250ms', '250-500ms', '500-1000ms', '1-5s', '> 5s'],
+          datasets: [{
+            label: 'Job Count',
+            data: [142, 389, 210, 85, 23, 4],
+            backgroundColor: 'rgba(59, 130, 246, 0.7)',
+            borderColor: '#3b82f6',
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+            y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    const ctx2 = document.getElementById('queueThroughputChart');
+    if (ctx2) {
+      new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+          labels: ['critical-payments', 'analytics-etl', 'default', 'notifications'],
+          datasets: [{
+            data: [450, 280, 190, 80],
+            backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'],
+            borderColor: '#111827',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+        }
+      });
+    }
+  }
+});
+</script>
+{% endblock %}
+

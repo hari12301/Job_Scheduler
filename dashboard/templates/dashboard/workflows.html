@@ -1,0 +1,132 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}DAG Workflows | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}DAG Workflows{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Create Workflow Card -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+      <div class="card-title">🔗 Multi-Step DAG Workflow Engine</div>
+      <button class="btn btn-primary btn-sm" onclick="openModal('new-workflow-modal')">+ Create New Workflow DAG</button>
+    </div>
+    <div class="card-body">
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Define complex job pipelines with dependency graphs (Directed Acyclic Graphs). Downstream child steps will automatically remain in <code>PENDING</code> status until all upstream parent jobs have transitioned to <code>COMPLETED</code>.
+      </p>
+
+      <div id="dag-container" style="width: 100%; min-height: 340px;">
+        <div style="text-align: center; color: var(--text-muted); padding: 50px;">
+          Select or trigger a DAG workflow below to visualize interactive state progression.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Create Workflow -->
+<div class="modal-backdrop" id="new-workflow-modal">
+  <div class="modal-content" style="max-width: 650px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <h3 class="card-title">🔗 Create Multi-Step DAG Pipeline</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('new-workflow-modal')">✕</button>
+    </div>
+    <form id="workflow-form" onsubmit="handleWorkflowSubmit(event)">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Project</label>
+          <select id="wf-project" class="select" style="width: 100%;" required>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Queue</label>
+          <select id="wf-queue" class="select" style="width: 100%;" required>
+            {% for q in queues %}
+            <option value="{{ q.id }}">{{ q.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Workflow Name</label>
+        <input type="text" id="wf-name" class="input" style="width: 100%;" required value="ETL Data Aggregation Pipeline">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Pipeline Steps Definition (JSON Graph)</label>
+        <textarea id="wf-steps-json" class="input" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 11px;">[
+  { "step_id": "extract", "name": "Extract S3 Data", "handler": "data_pipeline", "payload": {"dataset": "raw_logs"} },
+  { "step_id": "clean", "name": "Clean & Deduplicate", "handler": "mock_task", "payload": {"duration_seconds": 1.0}, "depends_on": ["extract"] },
+  { "step_id": "load", "name": "Load Warehouse Table", "handler": "data_pipeline", "payload": {"target": "analytics_fact"}, "depends_on": ["clean"] },
+  { "step_id": "notify", "name": "Send Completion Slack", "handler": "email_dispatch", "payload": {"to": "ops@example.com"}, "depends_on": ["load"] }
+]</textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('new-workflow-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create & Enqueue DAG</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/dag.js' %}"></script>
+<script>
+async function handleWorkflowSubmit(e) {
+  e.preventDefault();
+  try {
+    const steps = JSON.parse(document.getElementById('wf-steps-json').value);
+    const data = {
+      project: document.getElementById('wf-project').value,
+      queue: document.getElementById('wf-queue').value,
+      workflow_name: document.getElementById('wf-name').value,
+      steps: steps
+    };
+
+    const res = await apiRequest('/api/v1/workflows/', 'POST', data);
+    showToast(`Workflow created with ${res.total_steps} steps!`, 'success');
+    closeModal('new-workflow-modal');
+
+    // Render DAG graph
+    loadAndRenderDAG(res.workflow_id);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function loadAndRenderDAG(batchId) {
+  try {
+    const graphData = await apiRequest(`/api/v1/workflows/batch/${batchId}/`);
+    renderDAG('dag-container', graphData.nodes, graphData.links);
+  } catch (err) {
+    console.error("DAG load error", err);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Render demo DAG if available
+  const sampleNodes = [
+    { id: '1', name: '1. Extract S3 Data', status: 'COMPLETED' },
+    { id: '2', name: '2. Schema Validation', status: 'COMPLETED' },
+    { id: '3', name: '3. Transform & Dedup', status: 'RUNNING' },
+    { id: '4', name: '4. Load Warehouse Table', status: 'PENDING' },
+    { id: '5', name: '5. Send Alert', status: 'PENDING' }
+  ];
+  const sampleEdges = [
+    { source: '1', target: '2' },
+    { source: '2', target: '3' },
+    { source: '3', target: '4' },
+    { source: '4', target: '5' }
+  ];
+  renderDAG('dag-container', sampleNodes, sampleEdges);
+});
+</script>
+{% endblock %}
+

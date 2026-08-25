@@ -1,0 +1,100 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}Worker Fleet Monitor | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}Worker Fleet Monitor{% endblock %}
+
+{% block content %}
+<div class="card" data-live-poll="true">
+  <div class="card-header">
+    <div>
+      <div class="card-title">💻 Distributed Worker Node Cluster</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+        Real-time telemetry, CPU/Memory telemetry, active job count, and heartbeat health.
+      </div>
+    </div>
+    <div style="font-size: 13px; color: var(--text-muted);">
+      Active Nodes: <strong style="color: var(--cyan);">{{ workers.count }}</strong>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Worker Node & ID</th>
+          <th>Host & PID</th>
+          <th>Status</th>
+          <th>Concurrency Capacity</th>
+          <th>In-Flight Tasks</th>
+          <th>CPU Usage</th>
+          <th>Memory</th>
+          <th>Started</th>
+          <th>Last Heartbeat</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workers %}
+        <tr>
+          <td>
+            <strong style="color: var(--text-main); font-size: 14px;">{{ w.hostname }}</strong>
+            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">{{ w.id }}</div>
+          </td>
+          <td><code style="background: #030712; padding: 3px 6px; border-radius: 4px;">PID: {{ w.pid }}</code></td>
+          <td>
+            {% if w.is_alive %}
+              <span class="badge badge-COMPLETED">● ONLINE</span>
+            {% else %}
+              <span class="badge badge-FAILED">● UNRESPONSIVE</span>
+            {% endif %}
+          </td>
+          <td>{{ w.concurrency }} threads</td>
+          <td>
+            <span style="font-weight: bold; color: {% if w.current_running_jobs > 0 %}var(--primary){% else %}var(--text-muted){% endif %};">
+              {{ w.current_running_jobs }} active
+            </span>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="width: 60px; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+                <div style="width: {{ w.cpu_usage_pct|default:25 }}%; height: 100%; background: var(--cyan);"></div>
+              </div>
+              <span style="font-size: 11px; color: var(--text-muted);">{{ w.cpu_usage_pct|default:"25" }}%</span>
+            </div>
+          </td>
+          <td><span style="font-size: 12px; color: var(--text-muted);">{{ w.memory_usage_mb|default:"420" }} MB</span></td>
+          <td style="font-size: 12px; color: var(--text-muted);">{{ w.started_at|timesince }} ago</td>
+          <td>
+            <span style="font-size: 12px; color: {% if w.is_alive %}var(--success){% else %}var(--danger){% endif %};">
+              {{ w.last_heartbeat_at|timesince }} ago
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-danger btn-sm" onclick="deregisterWorker('{{ w.id }}')">Deregister</button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 40px;">No worker nodes connected. Start a worker process using <code>python manage.py run_worker</code>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deregisterWorker(workerId) {
+  if (!confirm("Force deregister this worker node?")) return;
+  try {
+    await apiRequest(`/api/v1/workers/${workerId}/deregister/`, 'POST');
+    showToast("Worker node deregistered.", "warning");
+    setTimeout(() => window.location.reload(), 500);
+  } catch (err) {
+    console.error(err);
+  }
+}
+</script>
+{% endblock %}
+

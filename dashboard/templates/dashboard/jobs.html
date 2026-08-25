@@ -1,0 +1,145 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}Job Explorer | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}Job Explorer{% endblock %}
+
+{% block content %}
+<div class="card" data-live-poll="true">
+  <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
+    <div class="card-title">⚡ Job Explorer Workbench</div>
+    
+    <!-- Filter Controls -->
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+      <input type="text" id="job-search-input" class="input" placeholder="Search by name, ID, idempotency..." style="width: 260px;" onkeyup="if(event.key==='Enter') applyFilters()">
+      
+      <select id="filter-status" class="select" onchange="applyFilters()">
+        <option value="">All Statuses</option>
+        <option value="QUEUED">QUEUED</option>
+        <option value="RUNNING">RUNNING</option>
+        <option value="COMPLETED">COMPLETED</option>
+        <option value="FAILED">FAILED</option>
+        <option value="DEAD_LETTER">DEAD_LETTER</option>
+        <option value="PENDING">PENDING</option>
+      </select>
+
+      <select id="filter-queue" class="select" onchange="applyFilters()">
+        <option value="">All Queues</option>
+        {% for q in queues %}
+        <option value="{{ q.id }}">{{ q.name }}</option>
+        {% endfor %}
+      </select>
+
+      <button class="btn btn-secondary btn-sm" onclick="applyFilters()">Filter</button>
+      <button class="btn btn-primary btn-sm" onclick="openModal('create-job-modal')">+ New Job</button>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Job Name & UUID</th>
+          <th>Queue</th>
+          <th>Type</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Duration</th>
+          <th>Scheduled / Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-table-body">
+        <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">Loading jobs...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div style="padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+    <div id="job-count-label" style="font-size: 12px; color: var(--text-muted);">Showing recent jobs</div>
+    <div style="display: flex; gap: 8px;">
+      <button id="prev-page-btn" class="btn btn-secondary btn-sm" onclick="changePage(-1)" disabled>← Previous</button>
+      <button id="next-page-btn" class="btn btn-secondary btn-sm" onclick="changePage(1)" disabled>Next →</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+
+async function loadJobs() {
+  const search = document.getElementById('job-search-input').value.trim();
+  const status = document.getElementById('filter-status').value;
+  const queueId = document.getElementById('filter-queue').value;
+
+  let url = `/api/v1/jobs/?page=${currentPage}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  if (queueId) url += `&queue_id=${encodeURIComponent(queueId)}`;
+
+  const tbody = document.getElementById('jobs-table-body');
+  try {
+    const data = await apiRequest(url);
+    tbody.innerHTML = '';
+
+    if (!data.results || data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">No jobs match your filter criteria.</td></tr>';
+      document.getElementById('job-count-label').innerText = '0 jobs found';
+      return;
+    }
+
+    document.getElementById('job-count-label').innerText = `Total: ${data.count} jobs`;
+    document.getElementById('prev-page-btn').disabled = !data.previous;
+    document.getElementById('next-page-btn').disabled = !data.next;
+
+    data.results.forEach(job => {
+      const tr = document.createElement('tr');
+      const durationText = job.duration_ms ? `${job.duration_ms}ms` : '-';
+      const createdDate = new Date(job.created_at).toLocaleString();
+
+      tr.innerHTML = `
+        <td>
+          <a href="/jobs/${job.id}/" style="color: var(--primary); text-decoration: none; font-weight: 600;">${escapeHtml(job.name)}</a>
+          <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${job.id}</div>
+        </td>
+        <td><span class="badge" style="background: rgba(255,255,255,0.06);">${escapeHtml(job.queue_name)}</span></td>
+        <td><span style="font-size: 12px; color: var(--text-muted);">${job.job_type}</span></td>
+        <td><span class="badge" style="background: rgba(59, 130, 246, 0.15); color: var(--primary);">P${job.priority}</span></td>
+        <td><span class="badge badge-${job.status}">${job.status}</span></td>
+        <td>${job.current_attempt} / ${job.max_retries}</td>
+        <td>${durationText}</td>
+        <td style="font-size: 11px; color: var(--text-muted);">${createdDate}</td>
+        <td>
+          <div style="display: flex; gap: 4px;">
+            <a href="/jobs/${job.id}/" class="btn btn-secondary btn-sm">Inspect</a>
+            ${job.status === 'FAILED' || job.status === 'DEAD_LETTER' ? `<button class="btn btn-primary btn-sm" onclick="retryJob('${job.id}')">Retry</button>` : ''}
+            ${job.status === 'QUEUED' || job.status === 'RUNNING' ? `<button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')">Cancel</button>` : ''}
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--danger); padding: 30px;">Error loading jobs.</td></tr>';
+  }
+}
+
+function applyFilters() {
+  currentPage = 1;
+  loadJobs();
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  loadJobs();
+}
+
+document.addEventListener('DOMContentLoaded', loadJobs);
+</script>
+{% endblock %}
+

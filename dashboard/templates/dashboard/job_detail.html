@@ -1,0 +1,174 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}Job Inspector #{{ job.id|slice:":8" }} | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}Job Explorer / <span>{{ job.name }}</span>{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Top Action & Overview Bar -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+      <div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h2 style="font-size: 20px; font-weight: 700; color: var(--text-main);">{{ job.name }}</h2>
+          <span id="job-status-badge" class="badge badge-{{ job.status }}" style="font-size: 13px; padding: 5px 12px;">{{ job.status }}</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 4px;">
+          ID: {{ job.id }} • Project: {{ job.project.name }} • Queue: {{ job.queue.name }}
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        {% if job.status == 'FAILED' or job.status == 'DEAD_LETTER' %}
+        <button class="btn btn-primary" onclick="retryJob('{{ job.id }}')">🔄 Retry Job Now</button>
+        {% endif %}
+        {% if job.status == 'QUEUED' or job.status == 'RUNNING' or job.status == 'PENDING' %}
+        <button class="btn btn-danger" onclick="cancelJob('{{ job.id }}')">🛑 Cancel Job</button>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Metadata Grid -->
+    <div class="card-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; border-bottom: 1px solid var(--border-color);">
+      <div>
+        <div class="stat-label">Handler</div>
+        <div style="font-family: var(--font-mono); font-size: 14px; color: var(--cyan);">{{ job.handler }}</div>
+      </div>
+      <div>
+        <div class="stat-label">Job Type</div>
+        <div style="font-size: 14px;">{{ job.job_type }}</div>
+      </div>
+      <div>
+        <div class="stat-label">Priority</div>
+        <div style="font-size: 14px; font-weight: bold; color: var(--primary);">P{{ job.priority }}</div>
+      </div>
+      <div>
+        <div class="stat-label">Attempts</div>
+        <div style="font-size: 14px;">{{ job.current_attempt }} / {{ job.max_retries }}</div>
+      </div>
+      <div>
+        <div class="stat-label">Execution Duration</div>
+        <div style="font-size: 14px;">{% if job.duration_ms %}{{ job.duration_ms }}ms{% else %}-{% endif %}</div>
+      </div>
+      <div>
+        <div class="stat-label">Worker Assignment</div>
+        <div style="font-size: 13px; font-family: var(--font-mono);">
+          {% if job.claimed_by_worker %}{{ job.claimed_by_worker.hostname }}{% else %}-{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Streaming Terminal Logs -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+      <div class="card-title">🖥️ Streaming Execution Logs & Stdout</div>
+      <span style="font-size: 11px; color: var(--text-muted);">Auto-updating stream</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span>● ● ● terminal@job-{{ job.id|slice:":8" }}</span>
+          <span>UTF-8</span>
+        </div>
+        <div id="terminal-logs-body" class="terminal-body">
+          {% for log in logs %}
+          <div class="log-line">
+            <span class="log-time">{{ log.timestamp|date:"H:i:s.u" }}</span>
+            <span class="log-level-{{ log.level }}">[{{ log.level }}]</span>
+            <span class="log-msg">{{ log.message }}</span>
+          </div>
+          {% empty %}
+          <div style="color: #64748b; text-align: center; padding: 20px;">No execution log entries recorded yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Execution Attempt History Table -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+      <div class="card-title">📜 Execution Attempt History</div>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Attempt #</th>
+            <th>Worker Node</th>
+            <th>Status</th>
+            <th>Started At</th>
+            <th>Finished At</th>
+            <th>Duration</th>
+            <th>Exit Code</th>
+            <th>Error Diagnostic</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for exec in executions %}
+          <tr>
+            <td><strong>#{{ exec.attempt_number }}</strong></td>
+            <td style="font-family: var(--font-mono); font-size: 12px;">{{ exec.worker.hostname|default:"Standalone" }}</td>
+            <td><span class="badge badge-{{ exec.status }}">{{ exec.status }}</span></td>
+            <td>{{ exec.started_at|date:"Y-m-d H:i:s" }}</td>
+            <td>{{ exec.finished_at|date:"Y-m-d H:i:s"|default:"-" }}</td>
+            <td>{% if exec.duration_ms %}{{ exec.duration_ms }}ms{% else %}-{% endif %}</td>
+            <td><code>{{ exec.exit_code }}</code></td>
+            <td style="color: var(--danger); font-size: 12px;">{{ exec.error_message|default:"-"|truncatechars:80 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">No executions yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Payload & Result JSON Inspection -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📦 Job Payload (JSON)</div>
+      </div>
+      <div class="card-body">
+        <pre style="background: #030712; padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; color: #a5f3fc; border: 1px solid var(--border-color);">{{ job.payload|pprint }}</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🎯 Execution Result / Return Value</div>
+      </div>
+      <div class="card-body">
+        <pre style="background: #030712; padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; color: #86efac; border: 1px solid var(--border-color);">{% if job.result %}{{ job.result|pprint }}{% else %}<span style="color: #64748b;">No output result generated yet.</span>{% endif %}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Stack Trace if Failed -->
+  {% if job.error_stack %}
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title" style="color: var(--danger);">🛑 Error Diagnostics & Stack Trace</div>
+    </div>
+    <div class="card-body">
+      <pre style="background: #180808; padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; color: #fca5a5; border: 1px solid rgba(239,68,68,0.3);">{{ job.error_stack }}</pre>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/terminal.js' %}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    initTerminal("{{ job.id }}");
+  });
+</script>
+{% endblock %}
+

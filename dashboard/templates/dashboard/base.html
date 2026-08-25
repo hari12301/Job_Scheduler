@@ -1,0 +1,172 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Distributed Job Scheduler{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+  <!-- Chart.js CDN for visual charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <div class="logo-title">Distributed Scheduler</div>
+        <div class="logo-subtitle">Engine v1.0 • Postgres</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="{% url 'dashboard-overview' %}" class="nav-link {% if current_page == 'overview' %}active{% endif %}">
+        <span>📊</span> <span>Overview</span>
+      </a>
+      <a href="{% url 'dashboard-queues' %}" class="nav-link {% if current_page == 'queues' %}active{% endif %}">
+        <span>📂</span> <span>Job Queues</span>
+      </a>
+      <a href="{% url 'dashboard-jobs' %}" class="nav-link {% if current_page == 'jobs' %}active{% endif %}">
+        <span>⚡</span> <span>Job Explorer</span>
+      </a>
+      <a href="{% url 'dashboard-workflows' %}" class="nav-link {% if current_page == 'workflows' %}active{% endif %}">
+        <span>🔗</span> <span>DAG Workflows</span>
+      </a>
+      <a href="{% url 'dashboard-schedules' %}" class="nav-link {% if current_page == 'schedules' %}active{% endif %}">
+        <span>⏱️</span> <span>Cron Schedules</span>
+      </a>
+      <a href="{% url 'dashboard-dlq' %}" class="nav-link {% if current_page == 'dlq' %}active{% endif %}">
+        <span>☠️</span> <span>Dead Letter Queue</span>
+        {% if dlq_count > 0 %}<span class="nav-badge">{{ dlq_count }}</span>{% endif %}
+      </a>
+      <a href="{% url 'dashboard-workers' %}" class="nav-link {% if current_page == 'workers' %}active{% endif %}">
+        <span>💻</span> <span>Worker Fleet</span>
+      </a>
+      <a href="{% url 'dashboard-analytics' %}" class="nav-link {% if current_page == 'analytics' %}active{% endif %}">
+        <span>📈</span> <span>Analytics</span>
+      </a>
+      <a href="/api/docs/" target="_blank" class="nav-link">
+        <span>📖</span> <span>Swagger API Docs</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div><span class="pulse-dot"></span> Cluster Online</div>
+      <span style="font-family: var(--font-mono); font-size: 11px;">UTC</span>
+    </div>
+  </aside>
+
+  <!-- Main Content Wrapper -->
+  <div class="main-wrapper">
+    <header class="topbar">
+      <div class="breadcrumb">
+        Dashboard / <span>{% block breadcrumb %}Overview{% endblock %}</span>
+      </div>
+
+      <div class="topbar-actions">
+        <label style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh(this.checked, 3000)">
+          <span>Live Auto-Refresh (3s)</span>
+        </label>
+        <button class="btn btn-primary btn-sm" onclick="openModal('create-job-modal')">+ Enqueue Job</button>
+      </div>
+    </header>
+
+    <main class="content-container">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- Global Quick Job Creation Modal -->
+  <div class="modal-backdrop" id="create-job-modal">
+    <div class="modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 class="card-title">⚡ Enqueue Background Job</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('create-job-modal')">✕</button>
+      </div>
+      <form id="quick-job-form" onsubmit="handleQuickJobSubmit(event)">
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Job Name</label>
+          <input type="text" id="modal-job-name" class="input" style="width: 100%;" required placeholder="e.g. Export Monthly Report">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Handler</label>
+            <select id="modal-job-handler" class="select" style="width: 100%;">
+              <option value="mock_task">mock_task (Simulation)</option>
+              <option value="http_request">http_request (Webhook)</option>
+              <option value="email_dispatch">email_dispatch (Transactional Email)</option>
+              <option value="data_pipeline">data_pipeline (ETL Sync)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Priority (1-100)</label>
+            <input type="number" id="modal-job-priority" class="input" style="width: 100%;" value="50" min="1" max="100">
+          </div>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Payload (JSON)</label>
+          <textarea id="modal-job-payload" class="input" style="width: 100%; height: 80px; font-family: var(--font-mono);" placeholder='{"duration_seconds": 1.5, "fail_rate": 0.0}'></textarea>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Delay in Seconds (0 = Immediate)</label>
+          <input type="number" id="modal-job-delay" class="input" style="width: 100%;" value="0" min="0">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-job-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Dispatch Job</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Core Scripts -->
+  <script src="{% static 'dashboard/js/app.js' %}"></script>
+  <script>
+    async function handleQuickJobSubmit(e) {
+      e.preventDefault();
+      try {
+        // Fetch first project & queue ID
+        const queues = await apiRequest('/api/v1/queues/');
+        if (!queues.results || queues.results.length === 0) {
+          showToast("Please create a queue first or run seed_demo.", "error");
+          return;
+        }
+        const queue = queues.results[0];
+
+        let payload = {};
+        const payloadText = document.getElementById('modal-job-payload').value.trim();
+        if (payloadText) {
+          try { payload = JSON.parse(payloadText); } catch(err) {
+            showToast("Invalid JSON in payload", "error"); return;
+          }
+        }
+
+        const data = {
+          project: queue.project,
+          queue: queue.id,
+          name: document.getElementById('modal-job-name').value,
+          handler: document.getElementById('modal-job-handler').value,
+          priority: parseInt(document.getElementById('modal-job-priority').value),
+          payload: payload,
+          delay_seconds: parseInt(document.getElementById('modal-job-delay').value) || 0
+        };
+
+        const res = await apiRequest('/api/v1/jobs/', 'POST', data);
+        showToast("Job successfully enqueued!", "success");
+        closeModal('create-job-modal');
+        setTimeout(() => window.location.reload(), 600);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
+

@@ -1,0 +1,81 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}Dead Letter Queue (DLQ) | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}Dead Letter Queue (DLQ){% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title" style="color: var(--danger);">☠️ Dead Letter Queue Center</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+        Jobs that have exhausted all retry attempts or encountered fatal runtime exceptions. Includes automated AI root-cause diagnosis.
+      </div>
+    </div>
+    {% if entries %}
+    <button class="btn btn-primary btn-sm" onclick="replayAllDlq()">🔄 Replay All Fatal Jobs</button>
+    {% endif %}
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Failed Job Name & ID</th>
+          <th>Original Queue</th>
+          <th>Failure Category</th>
+          <th>Failed At</th>
+          <th>AI Failure Analysis & Diagnosis</th>
+          <th>Replay Count</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td>
+            <a href="{% url 'dashboard-job-detail' entry.job.id %}" style="color: var(--primary); font-weight: 600; text-decoration: none;">
+              {{ entry.job.name }}
+            </a>
+            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">{{ entry.job.id }}</div>
+          </td>
+          <td><span class="badge" style="background: rgba(255,255,255,0.06);">{{ entry.original_queue.name }}</span></td>
+          <td>
+            <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: var(--danger);">
+              {{ entry.failure_category }}
+            </span>
+          </td>
+          <td style="font-size: 12px; color: var(--text-muted);">{{ entry.failed_at|timesince }} ago</td>
+          <td style="max-width: 380px;">
+            <div style="background: #130a0a; border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.4;">
+              {% if entry.ai_summary %}
+                {{ entry.ai_summary|linebreaksbr }}
+              {% else %}
+                <span style="color: var(--danger);">{{ entry.failure_reason }}</span>
+              {% endif %}
+            </div>
+          </td>
+          <td style="text-align: center;">{{ entry.replay_count }}</td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-primary btn-sm" onclick="replayDlqEntry('{{ entry.id }}')">
+                🔄 Replay
+              </button>
+              <a href="{% url 'dashboard-job-detail' entry.job.id %}" class="btn btn-secondary btn-sm">Inspect</a>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">
+            🎉 All queues are operating smoothly! No jobs in the Dead Letter Queue.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+

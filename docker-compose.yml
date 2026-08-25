@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: djs_postgres
+    environment:
+      POSTGRES_DB: distributed_scheduler_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d distributed_scheduler_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: djs_web
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py seed_demo &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_ENGINE=postgresql
+      - POSTGRES_DB=distributed_scheduler_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgrespassword
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - DEBUG=True
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: djs_worker
+    command: python manage.py run_worker --concurrency=4
+    volumes:
+      - .:/app
+    environment:
+      - DB_ENGINE=postgresql
+      - POSTGRES_DB=distributed_scheduler_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgrespassword
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      web:
+        condition: service_started
+
+  scheduler:
+    build: .
+    container_name: djs_scheduler
+    command: python manage.py run_scheduler --tick-interval=2.0
+    volumes:
+      - .:/app
+    environment:
+      - DB_ENGINE=postgresql
+      - POSTGRES_DB=distributed_scheduler_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgrespassword
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      web:
+        condition: service_started
+
+volumes:
+  postgres_data:
+

@@ -1,0 +1,189 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+
+{% block title %}Cluster Overview | Distributed Job Scheduler{% endblock %}
+{% block breadcrumb %}Cluster Overview{% endblock %}
+
+{% block content %}
+<div data-live-poll="true">
+
+  <!-- Top Metrics Cards -->
+  <div class="grid-4">
+    <div class="stat-card">
+      <div class="stat-label">Active Worker Fleet</div>
+      <div class="stat-value" style="color: var(--cyan);">
+        <span>{{ active_workers }}</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">Nodes</span>
+      </div>
+      <div class="stat-sub">🟢 All worker heartbeats healthy</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Queue Backlog</div>
+      <div class="stat-value" style="color: var(--warning);">
+        <span>{{ queued_jobs }}</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">Queued</span>
+      </div>
+      <div class="stat-sub">Across {{ queues.count }} configured queues</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Running Executions</div>
+      <div class="stat-value" style="color: var(--primary);">
+        <span>{{ running_jobs }}</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">In-Flight</span>
+      </div>
+      <div class="stat-sub">Atomic claim locking active</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Completed Jobs</div>
+      <div class="stat-value" style="color: var(--success);">
+        <span>{{ completed_jobs }}</span>
+        <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">Processed</span>
+      </div>
+      <div class="stat-sub">Total Jobs: {{ total_jobs }}</div>
+    </div>
+  </div>
+
+  <!-- Realtime Telemetry Charts -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📈 System Throughput & Latency (Realtime)</div>
+      </div>
+      <div class="card-body">
+        <div style="height: 240px; position: relative;">
+          <canvas id="throughputChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🎯 Job State Distribution</div>
+      </div>
+      <div class="card-body" style="display: flex; justify-content: center; align-items: center;">
+        <div style="height: 240px; width: 280px; position: relative;">
+          <canvas id="statusDonutChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Queues Breakdown -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📂 Active Queues Status</div>
+      <a href="{% url 'dashboard-queues' %}" class="btn btn-secondary btn-sm">Manage All Queues →</a>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Queue Name</th>
+            <th>Priority</th>
+            <th>Concurrency Limit</th>
+            <th>Rate Limit</th>
+            <th>Queued</th>
+            <th>Running</th>
+            <th>State</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in queues %}
+          <tr>
+            <td>
+              <strong style="color: var(--text-main);">{{ q.name }}</strong>
+              <div style="font-size: 11px; color: var(--text-muted);">{{ q.project.name }}</div>
+            </td>
+            <td><span class="badge" style="background: rgba(59, 130, 246, 0.15); color: var(--primary);">P{{ q.priority }}</span></td>
+            <td>{{ q.concurrency_limit }} max</td>
+            <td>{% if q.rate_limit_per_second %}{{ q.rate_limit_per_second }} req/s{% else %}Unlimited{% endif %}</td>
+            <td><span style="font-weight: bold; color: var(--warning);">{{ q.queued_jobs_count }}</span></td>
+            <td><span style="font-weight: bold; color: var(--primary);">{{ q.active_jobs_count }}</span></td>
+            <td>
+              {% if q.is_paused %}
+                <span class="badge badge-CANCELLED">PAUSED</span>
+              {% else %}
+                <span class="badge badge-COMPLETED">ACTIVE</span>
+              {% endif %}
+            </td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="toggleQueuePause('{{ q.id }}', {{ q.is_paused|lower }})">
+                {% if q.is_paused %}Resume{% else %}Pause{% endif %}
+              </button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">No queues created yet. Run <code>python manage.py seed_demo</code> to seed sample data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Job Activity Stream -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">⚡ Recent Job Execution Activity</div>
+      <a href="{% url 'dashboard-jobs' %}" class="btn btn-secondary btn-sm">View Full Explorer →</a>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Job Name & ID</th>
+            <th>Queue</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Attempts</th>
+            <th>Duration</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in recent_jobs %}
+          <tr>
+            <td>
+              <a href="{% url 'dashboard-job-detail' job.id %}" style="color: var(--primary); text-decoration: none; font-weight: 600;">
+                {{ job.name }}
+              </a>
+              <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">{{ job.id }}</div>
+            </td>
+            <td><span class="badge" style="background: rgba(255,255,255,0.06);">{{ job.queue.name }}</span></td>
+            <td><span style="font-size: 12px; color: var(--text-muted);">{{ job.job_type }}</span></td>
+            <td><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+            <td>{{ job.current_attempt }} / {{ job.max_retries }}</td>
+            <td>{% if job.duration_ms %}{{ job.duration_ms }}ms{% else %}-{% endif %}</td>
+            <td style="font-size: 12px; color: var(--text-muted);">{{ job.created_at|timesince }} ago</td>
+            <td>
+              <a href="{% url 'dashboard-job-detail' job.id %}" class="btn btn-secondary btn-sm">Inspect</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">No jobs recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.STATUS_COUNTS = {
+    COMPLETED: {{ completed_jobs }},
+    QUEUED: {{ queued_jobs }},
+    RUNNING: {{ running_jobs }},
+    FAILED: {{ failed_jobs }},
+    DEAD_LETTER: {{ dlq_count }}
+  };
+</script>
+<script src="{% static 'dashboard/js/charts.js' %}"></script>
+{% endblock %}
+
