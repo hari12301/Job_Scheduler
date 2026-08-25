@@ -3,7 +3,7 @@
 
 ---
 
-## 🚀 Quick Start Guide (How to Run This Project)
+##  Quick Start Guide (How to Run This Project)
 
 ### Option 1: Run with Docker Compose (Fastest — Zero Setup)
 ```bash
@@ -49,11 +49,11 @@ python manage.py run_worker --concurrency=4
 python manage.py run_scheduler --tick-interval=2.0
 ```
 
-> 💡 **Windows 1-Click Launcher**: On Windows, you can simply double-click **`start_all.bat`** to start the web dashboard, worker daemon, and scheduler all at once!
+>  **Windows 1-Click Launcher**: On Windows, you can simply double-click **`start_all.bat`** to start the web dashboard, worker daemon, and scheduler all at once!
 
 ---
 
-### 🧪 How to Run Automated Tests
+### How to Run Automated Tests
 Run the full concurrency and unit test suite:
 ```bash
 python manage.py test
@@ -61,7 +61,7 @@ python manage.py test
 
 ---
 
-## 🏛️ System Architecture
+##  System Architecture
 
 ```
                                   +---------------------------------------+
@@ -96,7 +96,7 @@ python manage.py test
 
 ---
 
-## 📊 Database Design & Relational Schema (ER Model)
+##  Database Design & Relational Schema (ER Model)
 
 | Table | Primary Key | Foreign Keys / Relations | Description & Indexes |
 | :--- | :--- | :--- | :--- |
@@ -119,7 +119,7 @@ python manage.py test
 
 ---
 
-## ⚡ Concurrency Strategy: Atomic `SELECT ... FOR UPDATE SKIP LOCKED`
+##  Concurrency Strategy: Atomic `SELECT ... FOR UPDATE SKIP LOCKED`
 
 To prevent duplicate execution and race conditions across multiple distributed workers polling the same database queue simultaneously, the claimer executes atomic row-locking:
 
@@ -140,7 +140,7 @@ FOR UPDATE SKIP LOCKED;
 
 ---
 
-## 🔄 Complete Job Lifecycle State Machine
+##  Complete Job Lifecycle State Machine
 
 ```
               +-------------+
@@ -175,7 +175,7 @@ FOR UPDATE SKIP LOCKED;
 
 ---
 
-## ⚖️ Design Decisions & Trade-Offs
+##  Design Decisions & Trade-Offs
 
 1. **PostgreSQL Row-Locking (`SKIP LOCKED`) vs. Dedicated Message Brokers (Redis/RabbitMQ)**:
    - *Decision*: Used PostgreSQL as the queue backend.
@@ -189,7 +189,7 @@ FOR UPDATE SKIP LOCKED;
 
 ---
 
-## 📡 REST API Summary
+##  REST API Summary
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
