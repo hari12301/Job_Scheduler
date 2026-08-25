@@ -1,6 +1,5 @@
-# Distributed Job Scheduling & Background Execution Platform
+# Job Scheduler
 
-A production-grade, fault-tolerant distributed background job scheduling and execution platform built with **Python**, **Django 5**, **Django REST Framework**, **PostgreSQL**, and a modern **Web Dashboard**.
 
 ---
 
