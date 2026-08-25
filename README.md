@@ -1,6 +1,64 @@
 # Distributed Job Scheduling & Background Execution Platform
 
-A production-inspired, fault-tolerant distributed job scheduling platform built with **Python**, **Django 5**, **Django REST Framework**, **PostgreSQL**, and a modern **JavaScript / CSS Web Dashboard**.
+A production-grade, fault-tolerant distributed background job scheduling and execution platform built with **Python**, **Django 5**, **Django REST Framework**, **PostgreSQL**, and a modern **Web Dashboard**.
+
+---
+
+## 🚀 Quick Start Guide (How to Run This Project)
+
+### Option 1: Run with Docker Compose (Fastest — Zero Setup)
+```bash
+# Extract the zip file, open terminal in this folder, and run:
+docker-compose up --build
+```
+> This automatically starts **PostgreSQL**, runs database migrations, seeds realistic demo data (`seed_demo`), launches the **Web Dashboard** at `http://localhost:8000/`, and starts the background **Worker Daemon** and **Scheduler Daemon**.
+
+---
+
+### Option 2: Run with Local Python & PostgreSQL
+
+#### 1. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. Configure Database Credentials (if needed)
+In `scheduler_project/settings.py` (lines 80-85), set your PostgreSQL password (default is `postgres`):
+```python
+DB_PASSWORD = os.environ.get('POSTGRES_PASSWORD', 'your_postgres_password')
+```
+
+#### 3. Run Migrations & Seed Demo Data
+```bash
+python manage.py migrate
+python manage.py seed_demo
+```
+
+#### 4. Start the Web Dashboard
+```bash
+python manage.py runserver 0.0.0.0:8000
+```
+Open **`http://localhost:8000/`** in your browser!
+
+#### 5. Start the Background Worker Daemon (in a separate terminal)
+```bash
+python manage.py run_worker --concurrency=4
+```
+
+#### 6. Start the Central Scheduler & Reaper (in a separate terminal)
+```bash
+python manage.py run_scheduler --tick-interval=2.0
+```
+
+> 💡 **Windows 1-Click Launcher**: On Windows, you can simply double-click **`start_all.bat`** to start the web dashboard, worker daemon, and scheduler all at once!
+
+---
+
+### 🧪 How to Run Automated Tests
+Run the full concurrency and unit test suite:
+```bash
+python manage.py test
+```
 
 ---
 
@@ -39,35 +97,32 @@ A production-inspired, fault-tolerant distributed job scheduling platform built 
 
 ---
 
-## 📊 Database Design & Relational Schema
+## 📊 Database Design & Relational Schema (ER Model)
 
-The database schema is strictly normalized and indexed for high-throughput concurrency:
-
-| Table | Primary Key | Foreign Keys / Relations | Purpose & Indexes |
+| Table | Primary Key | Foreign Keys / Relations | Description & Indexes |
 | :--- | :--- | :--- | :--- |
 | **`organizations`** | `id` (UUID) | - | Multi-tenant organization boundaries. Unique `slug`. |
-| **`projects`** | `id` (UUID) | `organization_id` -> `organizations` (CASCADE) | Workspace container for queues, retry policies, and API keys. |
-| **`project_memberships`**| `id` (UUID) | `user_id` -> `auth_user`, `project_id` -> `projects` | RBAC roles (`ADMIN`, `DEVELOPER`, `VIEWER`). |
-| **`api_keys`** | `id` (UUID) | `project_id` -> `projects` (CASCADE) | SHA-256 hashed API token authentication (`X-API-Key`). |
-| **`retry_policies`** | `id` (UUID) | `project_id` -> `projects` (CASCADE) | Reusable retry strategies (`FIXED`, `LINEAR_BACKOFF`, `EXPONENTIAL_BACKOFF`, `jitter`). |
+| **`projects`** | `id` (UUID) | `organization_id` -> `organizations` | Workspace container for queues, retry policies, and API keys. |
+| **`project_memberships`**| `id` (UUID) | `user_id` -> `auth_user`, `project_id` -> `projects` | Role-Based Access Control (`ADMIN`, `DEVELOPER`, `VIEWER`). |
+| **`api_keys`** | `id` (UUID) | `project_id` -> `projects` | Secure SHA-256 hashed API token authentication (`X-API-Key`). |
+| **`retry_policies`** | `id` (UUID) | `project_id` -> `projects` | Reusable retry strategies (`FIXED`, `LINEAR_BACKOFF`, `EXPONENTIAL_BACKOFF`, `jitter`). |
 | **`queues`** | `id` (UUID) | `project_id` -> `projects`, `default_retry_policy_id` | Queue configuration with priority (1-100), concurrency limit, and rate limits. |
-| **`jobs`** | `id` (UUID) | `project_id`, `queue_id`, `claimed_by_worker_id`, `retry_policy_id`, `parent_job_id` | Core job entities. Compound index on `(queue_id, status, priority DESC, scheduled_at ASC)`. |
-| **`job_dependencies`**| `id` (UUID) | `job_id` -> `jobs`, `depends_on_id` -> `jobs` | Directed Acyclic Graph (DAG) workflow dependencies. |
+| **`jobs`** | `id` (UUID) | `project_id`, `queue_id`, `claimed_by_worker_id`, `retry_policy_id`, `parent_job_id` | Core job entity. Compound index on `(queue_id, status, priority DESC, scheduled_at ASC)`. |
+| **`job_dependencies`**| `id` (UUID) | `job_id` -> `jobs`, `depends_on_id` -> `jobs` | Directed Acyclic Graph (DAG) workflow step dependencies. |
 | **`job_executions`** | `id` (UUID) | `job_id` -> `jobs`, `worker_id` -> `workers` | Immutable audit log of every execution attempt and timing metrics. |
 | **`job_logs`** | `id` (BigInt)| `job_id` -> `jobs`, `execution_id` -> `job_executions`| Streaming log messages (`INFO`, `WARN`, `ERROR`, `DEBUG`) and timestamps. |
 | **`scheduled_jobs`** | `id` (UUID) | `project_id`, `queue_id` | Recurring cron jobs with standard 5-part cron expressions (`* * * * *`). |
 | **`workers`** | `id` (UUID) | - | Worker node registry, CPU/Memory telemetry, status, and heartbeat timestamps. |
-| **`worker_heartbeats`**| `id` (BigInt)| `worker_id` -> `workers` (CASCADE) | Time-series telemetry snapshots. |
+| **`worker_heartbeats`**| `id` (BigInt)| `worker_id` -> `workers` | Time-series telemetry snapshots. |
 | **`dead_letter_queue_entries`** | `id` (UUID)| `job_id` -> `jobs` (1:1), `original_queue_id` | Fatal failure inspection with automated AI root-cause diagnosis. |
 | **`distributed_locks`** | `lock_key` (PK)| - | Distributed locking with TTL expiration. |
 | **`rate_limit_buckets`**| `queue_id` (PK)| `queue_id` -> `queues` (1:1) | Token bucket state for queue-level rate limiting. |
 
 ---
 
-## ⚡ Concurrency & Atomic Claim Engine
+## ⚡ Concurrency Strategy: Atomic `SELECT ... FOR UPDATE SKIP LOCKED`
 
-### PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED`
-To avoid race conditions and double executions when multiple worker processes poll the same queue simultaneously, the claimer executes atomic locking:
+To prevent duplicate execution and race conditions across multiple distributed workers polling the same database queue simultaneously, the claimer executes atomic row-locking:
 
 ```sql
 SELECT id FROM jobs
@@ -79,10 +134,10 @@ LIMIT %s
 FOR UPDATE SKIP LOCKED;
 ```
 
-**Key Advantages:**
+**Key Architectural Benefits:**
 1. **Zero Lock Contention**: Workers skip rows locked by other workers without blocking or waiting.
 2. **Strict Priority Processing**: Highest priority jobs (`priority DESC`) are claimed first.
-3. **Queue Concurrency & Rate Limit Enforced**: Claimer evaluates active running jobs against `queue.concurrency_limit` and checks the token bucket before dispatching.
+3. **Capacity Enforced**: Claimer evaluates active running jobs against `queue.concurrency_limit` and checks the token bucket rate limiter before dispatching.
 
 ---
 
@@ -121,86 +176,17 @@ FOR UPDATE SKIP LOCKED;
 
 ---
 
-## 🚀 Key Features
+## ⚖️ Design Decisions & Trade-Offs
 
-1. **Multi-Type Job Scheduling**:
-   - **Immediate Jobs**: Executed as soon as worker capacity is available.
-   - **Delayed / Scheduled Jobs**: Activated when `scheduled_at <= NOW()`.
-   - **Recurring (Cron) Jobs**: Evaluated continuously with standard 5-part cron syntax (`*/5 * * * *`).
-   - **Batch Jobs**: Enqueued atomically with a shared `batch_id`.
-   - **DAG Workflows**: Dependency graphs where child jobs trigger only when parent jobs complete.
-2. **Fault Tolerance & Reliability**:
-   - Configurable retry strategies: `Fixed`, `Linear Backoff`, `Exponential Backoff`, and `Jitter`.
-   - **Dead Letter Queue (DLQ)**: Captures permanent failures with automated AI root-cause analysis.
-   - **Zombie Worker Reaper**: Detects crashed workers (>30s stale heartbeats) and safely reclaims in-flight jobs.
-   - **Graceful Shutdown**: Workers finish in-flight jobs upon `SIGINT`/`SIGTERM` before terminating.
-3. **Rich Web Dashboard**:
-   - **Overview**: Real-time throughput graphs, success/failure donuts, and queue health meters.
-   - **Queue Manager**: Interactive pause/resume, concurrency limits, and queue purging.
-   - **Job Explorer**: Status filter, search by ID or idempotency key, pagination, and live auto-refresh.
-   - **Job Inspector**: Live streaming terminal logs, retry history table, JSON payloads, and execution metrics.
-   - **DAG Visualizer**: Interactive node graph rendering step dependencies and live statuses.
-   - **DLQ Center**: One-click single and bulk job replay.
-   - **Worker Fleet**: CPU/Memory telemetry gauges and heartbeat health monitoring.
-4. **REST API & Interactive OpenAPI Docs**:
-   - Full Swagger UI (`/api/docs/`) and Redoc (`/api/redoc/`).
-
----
-
-## 🛠️ Quickstart & Local Setup
-
-### Option 1: Docker Compose (Recommended)
-```bash
-docker-compose up --build
-```
-This automatically boots:
-- PostgreSQL 16 on port `5432`
-- Django Web Dashboard & API on `http://localhost:8000`
-- Distributed Worker Daemon
-- Central Scheduler & Reaper Daemon
-
-### Option 2: Local Python Setup
-
-1. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Run Migrations & Seed Demo Data**:
-   ```bash
-   python manage.py migrate
-   python manage.py seed_demo
-   ```
-
-3. **Start the Web Dashboard**:
-   ```bash
-   python manage.py runserver 0.0.0.0:8000
-   ```
-
-4. **Start the Distributed Worker Daemon**:
-   ```bash
-   python manage.py run_worker --concurrency=4
-   ```
-
-5. **Start the Central Scheduler & Reaper**:
-   ```bash
-   python manage.py run_scheduler --tick-interval=2.0
-   ```
-
-6. **(Optional) Simulate Live Traffic**:
-   ```bash
-   python manage.py simulate_traffic --interval=1.0
-   ```
-
----
-
-## 🧪 Running Automated Tests
-
-Run the full Django test suite testing atomic claim concurrency, retry policies, DAG resolutions, API endpoints, and rate limits:
-
-```bash
-python manage.py test
-```
+1. **PostgreSQL Row-Locking (`SKIP LOCKED`) vs. Dedicated Message Brokers (Redis/RabbitMQ)**:
+   - *Decision*: Used PostgreSQL as the queue backend.
+   - *Trade-off*: Eliminates the operational overhead of running and synchronizing a secondary message broker. Guarantees ACID transactional consistency, zero data loss, and atomic state updates between jobs and application data.
+2. **Exponential Backoff with Jitter**:
+   - *Decision*: Applied randomized jitter (+/- 15%) to exponential retry intervals.
+   - *Trade-off*: Prevents the "Thundering Herd" problem where multiple retrying jobs hit a recovering downstream service at the exact same second.
+3. **Heartbeat-Based Dead Worker Reaping**:
+   - *Decision*: Workers send heartbeats every 5 seconds; scheduler reclaims jobs if heartbeat is older than 30 seconds.
+   - *Trade-off*: Guarantees "at-least-once" execution even if a worker server encounters an out-of-memory error (OOM) or abrupt kernel termination.
 
 ---
 
@@ -226,4 +212,3 @@ python manage.py test
 | `POST` | `/api/v1/dlq/replay_all/` | Replay all dead letter jobs |
 | `GET` | `/api/v1/metrics/` | Aggregated realtime telemetry and latency |
 | `GET` | `/api/docs/` | Interactive Swagger API documentation |
-
